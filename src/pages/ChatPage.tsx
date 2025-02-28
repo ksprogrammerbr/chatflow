@@ -27,165 +27,215 @@ export function ChatPage({
   const [userName, setUserName] = useState(initialUserName);
   const [userId, setUserId] = useState("");
   const [userCount, setUserCount] = useState(0);
-  // Remover variáveis não utilizadas
-  // const [showNameInput, setShowNameInput] = useState(false);
-  // const [newName, setNewName] = useState('');
-  // const [isConnecting, setIsConnecting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const maxReconnectAttempts = 3;
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
 
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
-  // Função para conectar ao WebSocket
   const connectWebSocket = useCallback(
     (initialUserName: string = "") => {
-      // setIsConnecting(true);
+      // Prevent multiple connection attempts
+      if (isConnecting || wsRef.current?.readyState === WebSocket.CONNECTING) {
+        console.log("WebSocket is already connecting");
+        return;
+      }
 
-      // Determinar o endereço do WebSocket (produção vs desenvolvimento)
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const wsUrl =
-        process.env.NODE_ENV === "production"
-          ? `${protocol}//${window.location.host}`
-          : `${protocol}//localhost:3000`;
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        console.log("WebSocket is already connected");
+        return;
+      }
 
-      // Criar nova conexão WebSocket
-      const ws = new WebSocket(wsUrl);
-      wsRef.current = ws;
+      setIsConnecting(true);
 
-      // Manipulador de evento de abertura de conexão
-      ws.onopen = () => {
-        console.log("Conectado ao servidor WebSocket");
-        setConnected(true);
-        // setIsConnecting(false);
+      try {
+        // Update WebSocket URL to use the specific path
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        const wsUrl = `${protocol}//localhost:3000/ws`;
 
-        // Se temos um nome de usuário inicial, enviar para o servidor
-        if (initialUserName) {
-          setTimeout(() => {
-            ws.send(
-              JSON.stringify({
-                type: "changeName",
-                name: initialUserName,
-              })
-            );
-          }, 500);
-        }
+        console.log("Connecting to WebSocket at:", wsUrl);
+        const ws = new WebSocket(wsUrl);
+        wsRef.current = ws;
 
-        // Adicionar mensagem do sistema
-        setMessages((prev) => [
-          ...prev,
-          {
-            type: "system",
-            userId: "system",
-            userName: "Sistema",
-            message: "Conectado ao servidor de chat",
-            timestamp: new Date().toISOString(),
-          },
-        ]);
-      };
-
-      // Manipulador de evento de mensagem recebida
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          console.log("Mensagem recebida:", data);
-
-          // Processar diferentes tipos de mensagens
-          switch (data.type) {
-            case "welcome":
-              setUserId(data.userId);
-              if (!initialUserName) {
-                setUserName(data.userName);
-              }
-              setUserCount(data.userCount);
-              break;
-            case "userJoined":
-              setMessages((prev) => [
-                ...prev,
-                {
-                  type: "system",
-                  userId: "system",
-                  userName: "Sistema",
-                  message: `${data.userName} entrou no chat`,
-                  timestamp: new Date().toISOString(),
-                },
-              ]);
-              setUserCount(data.userCount);
-              break;
-            case "userLeft":
-              setMessages((prev) => [
-                ...prev,
-                {
-                  type: "system",
-                  userId: "system",
-                  userName: "Sistema",
-                  message: `${data.userName} saiu do chat`,
-                  timestamp: new Date().toISOString(),
-                },
-              ]);
-              setUserCount(data.userCount);
-              break;
-            case "message":
-              setMessages((prev) => [
-                ...prev,
-                {
-                  type: "message",
-                  userId: data.userId,
-                  userName: data.userName,
-                  message: data.message,
-                  timestamp: data.timestamp,
-                },
-              ]);
-              break;
-            case "nameChanged":
-              setMessages((prev) => [
-                ...prev,
-                {
-                  type: "system",
-                  userId: "system",
-                  userName: "Sistema",
-                  message: `${data.oldName} mudou seu nome para ${data.newName}`,
-                  timestamp: new Date().toISOString(),
-                },
-              ]);
-              if (data.userId === userId) {
-                setUserName(data.newName);
-              }
-              break;
-            default:
-              console.log("Tipo de mensagem desconhecido:", data.type);
+        // Add connection timeout
+        const connectionTimeout = setTimeout(() => {
+          if (ws.readyState !== WebSocket.OPEN) {
+            console.log("Connection timeout, closing socket");
+            ws.close();
           }
-        } catch (error) {
-          console.error("Erro ao processar mensagem:", error);
-        }
-      };
+        }, 5000);
 
-      ws.onclose = () => {
-        console.log("Desconectado do servidor WebSocket");
-        setConnected(false);
-        // setIsConnecting(false);
-        // Adicione lógica de reconexão aqui, se necessário
-      };
+        ws.onopen = () => {
+          clearTimeout(connectionTimeout);
+          console.log("WebSocket connection established");
+          setConnected(true);
+          setIsConnecting(false);
+          setReconnectAttempts(0);
 
-      ws.onerror = (error) => {
-        console.error("Erro no WebSocket:", error);
-        // setIsConnecting(false);
-        // Lidar com o erro, como mostrar uma mensagem ao usuário
-      };
+          // Send initial message to confirm connection
+          ws.send(JSON.stringify({ type: "init", name: initialUserName }));
+        };
+
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log("Mensagem recebida (client):", data);
+
+            switch (data.type) {
+              case "chat":
+                // Atualizar tratamento de mensagens de chat
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    type: "message",
+                    userId: data.userId,
+                    userName: data.userName,
+                    message: data.message,
+                    timestamp: data.timestamp || new Date().toISOString(),
+                  },
+                ]);
+                break;
+
+              case "welcome":
+                setUserId(data.userId);
+                setUserName(data.userName);
+                setUserCount(data.userCount);
+                setConnected(true);
+                break;
+
+              case "connection_ack":
+                // Acknowledge the connection
+                console.log("Connection acknowledged by server");
+                break;
+              case "userJoined":
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    type: "system",
+                    userId: "system",
+                    userName: "Sistema",
+                    message: `${data.userName} entrou no chat`,
+                    timestamp: new Date().toISOString(),
+                  },
+                ]);
+                setUserCount(data.userCount);
+                break;
+              case "userLeft":
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    type: "system",
+                    userId: "system",
+                    userName: "Sistema",
+                    message: `${data.userName} saiu do chat`,
+                    timestamp: new Date().toISOString(),
+                  },
+                ]);
+                setUserCount(data.userCount);
+                break;
+              case "message":
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    type: "message",
+                    userId: data.userId,
+                    userName: data.userName,
+                    message: data.message,
+                    timestamp: data.timestamp,
+                  },
+                ]);
+                break;
+              case "nameChanged":
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    type: "system",
+                    userId: "system",
+                    userName: "Sistema",
+                    message: `${data.oldName} mudou seu nome para ${data.newName}`,
+                    timestamp: new Date().toISOString(),
+                  },
+                ]);
+                if (data.userId === userId) {
+                  setUserName(data.newName);
+                }
+                break;
+              default:
+                console.log("Tipo de mensagem desconhecido:", data.type);
+            }
+          } catch (error) {
+            console.error("Erro ao processar mensagem:", error);
+          }
+        };
+
+        ws.onclose = (event) => {
+          clearTimeout(connectionTimeout);
+          console.log("WebSocket connection closed:", event.code, event.reason);
+          setConnected(false);
+          setIsConnecting(false);
+
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+          }
+
+          // Only attempt to reconnect if the closure code is not normal (1000/1005) and within retry limits
+          if (
+            event.code !== 1000 &&
+            event.code !== 1005 &&
+            reconnectAttempts < maxReconnectAttempts
+          ) {
+            const timeout = Math.min(
+              1000 * Math.pow(2, reconnectAttempts),
+              30000
+            );
+            console.log(`Attempting to reconnect in ${timeout}ms`);
+            setReconnectAttempts((prev) => prev + 1);
+            reconnectTimeoutRef.current = setTimeout(
+              () => connectWebSocket(initialUserName),
+              timeout
+            );
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+          setIsConnecting(false);
+        };
+      } catch (error) {
+        console.error("Error creating WebSocket:", error);
+      } finally {
+        setIsConnecting(false);
+      }
     },
-    [userId]
+    [reconnectAttempts, initialUserName, isConnecting]
   );
 
-  // Efeito para conectar ao WebSocket no carregamento do componente
   useEffect(() => {
     connectWebSocket(initialUserName);
 
-    // Função para desconectar ao desmontar o componente
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
-  }, [initialUserName, connectWebSocket]); // Adicionar connectWebSocket como dependência
+  }, [initialUserName, connectWebSocket]);
+
+  const handleManualReconnect = useCallback(() => {
+    setReconnectAttempts(0);
+    connectWebSocket(initialUserName);
+  }, [initialUserName, connectWebSocket]);
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
 
   return (
     <div>
@@ -194,8 +244,8 @@ export function ChatPage({
         onLogout={onLogout}
         userCount={userCount}
         connected={connected}
-        isConnecting={false} // Ajustar conforme necessário
-        onReconnect={() => connectWebSocket(userName)}
+        isConnecting={isConnecting}
+        onReconnect={handleManualReconnect}
         onChangeName={() => {
           const newName = prompt("Digite o novo nome:");
           if (newName && wsRef.current && connected) {
@@ -221,10 +271,12 @@ export function ChatPage({
       <ChatInput
         onSendMessage={(message) => {
           if (wsRef.current && connected) {
+            // Enviar mensagem com tipo 'chat' em vez de 'message'
             wsRef.current.send(
               JSON.stringify({
-                type: "message",
-                message,
+                type: "chat",
+                message: message,
+                timestamp: new Date().toISOString(),
               })
             );
           }

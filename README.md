@@ -32,7 +32,7 @@ npm install
 
 ### Desenvolvimento
 
-1. Construa o frontend:
+1. Construa o frontend (necessário apenas na primeira vez ou após mudanças no frontend):
 
 ```bash
 npm run build
@@ -48,7 +48,7 @@ npm run server
 
 ### Produção
 
-1. Construa o frontend para produção:
+1. Construa o frontend para produção (necessário apenas na primeira vez ou após mudanças no frontend):
 
 ```bash
 npm run build
@@ -82,6 +82,7 @@ Para testar o aplicativo, você pode usar as seguintes credenciais:
 ### Landing Page
 
 A landing page apresenta:
+
 - Design moderno e atraente
 - Seções informativas sobre recursos
 - Demonstração visual do funcionamento
@@ -92,6 +93,7 @@ A landing page apresenta:
 ### Autenticação
 
 O sistema de autenticação implementa:
+
 - Tela de login com validação de credenciais
 - Proteção do acesso ao chat apenas para usuários autenticados
 - Logout com limpeza de sessão
