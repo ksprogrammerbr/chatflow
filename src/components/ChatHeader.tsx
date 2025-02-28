@@ -35,7 +35,6 @@ export function ChatHeader({
               <Menu className="h-5 w-5 text-gray-600" />
             </button>
           )}
-
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 text-white p-2 rounded-lg">
               <MessageSquare className="h-5 w-5" />
